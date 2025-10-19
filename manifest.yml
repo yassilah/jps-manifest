@@ -77,15 +77,44 @@ nodes:
 skipNodeEmails: true
 
 onInstall:
+  - createEnvFile
   - if (${settings.dns}): addDNSRecords
   - cloneRepo
-  - createEnvFile
   - createDeployScript
   - installDocker
   - installWebhook
   - runDeployScript
+  - finalOutput
 
 actions:
+  createEnvFile:
+    cmd[cp]: |-
+      if [ "${settings.directus}" = "true" ]; then
+          # Generate Directus environment variables
+          echo "DB_PASSWORD=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 12)" >> /.jelenv
+          echo "DIRECTUS_KEY=$(openssl rand -base64 32)" >> /.jelenv
+          echo "DIRECTUS_SECRET=$(openssl rand -base64 64 | tr -d '\n')" >> /.jelenv         
+          echo "ADMIN_EMAIL=yasser.lahbibi@apenhet.com" >> /.jelenv
+          echo "ADMIN_PASSWORD=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 12)" >> /.jelenv
+      fi
+
+      LIST="${settings.domains}"
+
+      IFS=',' read -r -d '' -a DOMAINS <<< "$(echo "$LIST")"
+
+      for DOMAIN in "${DOMAINS[@]}"; do
+        SERVICE=$(echo "$DOMAIN" | cut -d ':' -f 2 | tr '.' '_' | tr '[:lower:]' '[:upper:]')
+        HOST=$(echo "$DOMAIN" | cut -d ':' -f 1)
+        echo "${SERVICE}_HOST=${HOST}" >> /.jelenv
+        echo "${SERVICE}_URL=https://${HOST}" >> /.jelenv
+      done
+
+      if [ -n "${settings.env}" ]; then
+          echo -e "\n${settings.env}" >> /.jelenv
+      fi
+
+      cat /.jelenv
+      
   addDNSRecords:
     cmd[cp]: |-
       LIST="${settings.domains}"
@@ -118,32 +147,6 @@ actions:
           git clone -b ${settings.branch} https://${settings.token}@github.com/${settings.repo}.git /home/jelastic/app
       else
           git clone -b ${settings.branch} https://github.com/${settings.repo}.git /home/jelastic/app
-      fi
-
-  createEnvFile:
-    cmd[cp]: |-
-      if [ "${settings.directus}" = "true" ]; then
-          # Generate Directus environment variables
-          echo "DB_PASSWORD=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 12)" >> /.jelenv
-          echo "DIRECTUS_KEY=$(openssl rand -base64 32)" >> /.jelenv
-          echo "DIRECTUS_SECRET=$(openssl rand -base64 64 | tr -d '\n')" >> /.jelenv         
-          echo "ADMIN_EMAIL=yasser.lahbibi@apenhet.com" >> /.jelenv
-          echo "ADMIN_PASSWORD=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 12)" >> /.jelenv
-      fi
-
-      LIST="${settings.domains}"
-
-      IFS=',' read -r -d '' -a DOMAINS <<< "$(echo "$LIST")"
-
-      for DOMAIN in "${DOMAINS[@]}"; do
-        SERVICE=$(echo "$DOMAIN" | cut -d ':' -f 2 | tr '.' '_' | tr '[:lower:]' '[:upper:]')
-        HOST=$(echo "$DOMAIN" | cut -d ':' -f 1)
-        echo "${SERVICE}_HOST=${HOST}" >> /.jelenv
-        echo "${SERVICE}_URL=https://${HOST}" >> /.jelenv
-      done
-
-      if [ -n "${settings.env}" ]; then
-          echo -e "\n${settings.env}" >> /.jelenv
       fi
 
   createDeployScript:
@@ -262,3 +265,36 @@ actions:
   runDeployScript:
     cmd[cp]: |-
       cd /home/jelastic && bash deploy.sh
+  
+  finalOutput:
+    script[cp]:
+      params: 
+        env: ${response.responses[0].out}
+      script: |-
+        const envData = this.env.split('\\n').reduce((obj, line) => {
+          const [key, value] = line.split('=');
+          obj[key] = value;
+          return obj;
+        }, {});
+
+        let message = "Installation completed.";
+
+        if (envData.ADMIN_EMAIL && envData.ADMIN_PASSWORD) {
+          message += "\n\nDirectus Admin Credentials:";
+          message += "\n- Email: " + envData.ADMIN_EMAIL;
+          message += "\n- Password: " + envData.ADMIN_PASSWORD;
+        }
+
+        const hasUrl = Object.keys(envData).some(key => key.endsWith('_URL'));
+
+        if (hasUrl) {
+          message += "\n\nService URLs:";
+
+          Object.keys(envData).forEach((key) => {
+            if (key.endsWith('_URL')) {
+              message += "\n- " + key.replace('_URL', '') + ": " + envData[key];
+            }
+          });
+        }
+
+        return { "type": "success", "message": message };
