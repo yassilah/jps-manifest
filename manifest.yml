@@ -114,7 +114,9 @@ actions:
       fi
 
       cat /.jelenv
-      
+    setGlobals:
+      env: ${response.responses[0].out}
+       
   addDNSRecords:
     cmd[cp]: |-
       LIST="${settings.domains}"
@@ -269,15 +271,15 @@ actions:
   finalOutput:
     script[cp]:
       params: 
-        env: ${response.responses[0].out}
+        env: ${globals.env}
       script: |-
-        const envData = this.env.split('\\n').reduce((obj, line) => {
+        const envData = this.env.split('\n').reduce((obj, line) => {
           const [key, value] = line.split('=');
           obj[key] = value;
           return obj;
         }, {});
 
-        let message = "Installation completed.";
+        let message = "Installation completed.\n\n";
 
         if (envData.ADMIN_EMAIL && envData.ADMIN_PASSWORD) {
           message += "\n\nDirectus Admin Credentials:";
