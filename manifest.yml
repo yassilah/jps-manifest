@@ -159,6 +159,13 @@ actions:
 
       # Pull the latest changes
       git pull origin ${settings.branch}
+
+      if [ "${settings.directus}" = "true" ]; then
+      # Ensure an extenstion registry is set with correct permissions
+        sudoc mkdir -p ./admin/extensions/.registry
+        sudo chown -R 1000:1000 ./admin/extensions/.registry
+        sudo chmod -R 755 ./admin/extensions/.registry
+      fi
       
       # Copy .jelenv to the home directory
       cp /.jelenv /home/jelastic/app/.env -f
